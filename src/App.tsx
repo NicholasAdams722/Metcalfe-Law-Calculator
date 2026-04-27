@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, type ReactElement } from 'react'
 import {
   ComposedChart,
   Area,
@@ -77,8 +77,21 @@ type TooltipProps = {
   payload?: ReadonlyArray<{ payload: { daa: number; fairValue: number } }>
 }
 
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+function useIsMobile(breakpoint = 700) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint)
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [breakpoint])
+  return isMobile
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  const isMobile = useIsMobile()
   // ── ETH price (CoinGecko, every 60s) ──────────────────────────────────────
   const [ethPrice, setEthPrice]         = useState(ETH_PRICE_FALLBACK)
   const [priceStatus, setPriceStatus]   = useState<LiveStatus>('loading')
@@ -327,6 +340,7 @@ export default function App() {
                     background: `linear-gradient(to right, ${
                       isUndervalued ? 'var(--q-blue)' : 'var(--down)'
                     } ${sliderVal}%, var(--border) ${sliderVal}%)`,
+                    touchAction: 'pan-y',
                   }}
                 />
                 <div
@@ -387,6 +401,7 @@ export default function App() {
           daaBaseline={daaBaseline}
           daaBreakeven={daaBreakeven}
           tooltipContent={chartTooltip}
+          isMobile={isMobile}
         />
 
         {/* ── Explainer ── */}
@@ -445,15 +460,22 @@ export default function App() {
 // ── MetcalfeChart ─────────────────────────────────────────────────────────────
 function MetcalfeChart({
   selectedDaa, selectedFairValue, isUndervalued,
-  ethPrice, daaBaseline, daaBreakeven, tooltipContent,
+  ethPrice, daaBaseline, daaBreakeven, tooltipContent, isMobile,
 }: {
   selectedDaa: number; selectedFairValue: number; isUndervalued: boolean
-  ethPrice: number; daaBaseline: number; daaBreakeven: number
+  ethPrice: number; daaBaseline: number; daaBreakeven: number; isMobile: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tooltipContent: (props: any) => React.ReactElement | null
+  tooltipContent: (props: any) => ReactElement | null
 }) {
   const inRange  = selectedDaa <= CHART_MAX_DAA
   const dotColor = isUndervalued ? '#5b8ef7' : '#f05252'
+  const chartHeight = isMobile ? 240 : 360
+  const chartMargin = isMobile
+    ? { top: 16, right: 12, bottom: 28, left: 0 }
+    : { top: 24, right: 28, bottom: 36, left: 16 }
+  const xTicks = isMobile
+    ? [0, 1_000_000, 2_000_000, 3_000_000]
+    : [0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000]
 
   return (
     <section className="chart-card">
@@ -461,20 +483,22 @@ function MetcalfeChart({
         <div>
           <h2>Price Curve</h2>
           <p className="chart-subtitle">
-            Metcalfe fair value vs. daily active addresses — drag the slider above to move the indicator
+            {isMobile
+              ? 'Drag the slider above to move the indicator'
+              : 'Metcalfe fair value vs. daily active addresses — drag the slider above to move the indicator'}
           </p>
         </div>
         <div className="chart-legend">
-          <div className="legend-item"><div className="legend-swatch legend-swatch--curve" /><span>Fair Value (k=565)</span></div>
-          <div className="legend-item"><div className="legend-swatch legend-swatch--market" /><span>Market Price</span></div>
-          <div className="legend-item"><div className="legend-swatch legend-swatch--breakeven" /><span>Break-even</span></div>
-          <div className="legend-item"><div className="legend-swatch legend-swatch--selected" /><span>Selected DAA</span></div>
+          <div className="legend-item"><div className="legend-swatch legend-swatch--curve" /><span>Fair Value</span></div>
+          <div className="legend-item"><div className="legend-swatch legend-swatch--market" /><span>Market</span></div>
+          {!isMobile && <div className="legend-item"><div className="legend-swatch legend-swatch--breakeven" /><span>Break-even</span></div>}
+          <div className="legend-item"><div className="legend-swatch legend-swatch--selected" /><span>Selected</span></div>
         </div>
       </div>
 
       <div className="chart-wrap">
-        <ResponsiveContainer width="100%" height={360}>
-          <ComposedChart data={CHART_DATA} margin={{ top: 24, right: 28, bottom: 36, left: 16 }}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <ComposedChart data={CHART_DATA} margin={chartMargin}>
             <defs>
               <linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%"   stopColor="#5b8ef7" stopOpacity={0.35} />
@@ -487,16 +511,17 @@ function MetcalfeChart({
             <XAxis
               dataKey="daa" type="number"
               domain={[0, CHART_MAX_DAA]}
-              ticks={[0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000]}
+              ticks={xTicks}
               tickFormatter={v => v === 0 ? '0' : fmtDAA(v)}
-              tick={{ fontSize: 11, fill: '#3d4a68' }} tickLine={false}
+              tick={{ fontSize: isMobile ? 9 : 11, fill: '#3d4a68' }} tickLine={false}
               axisLine={{ stroke: '#1a1e30' }}
-              label={{ value: 'Daily Active Addresses (DAA)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#4b5680' }}
+              label={isMobile ? undefined : { value: 'Daily Active Addresses (DAA)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#4b5680' }}
             />
 
             <YAxis
               tickFormatter={fmtYAxis}
-              tick={{ fontSize: 11, fill: '#3d4a68' }} tickLine={false} axisLine={false} width={52}
+              tick={{ fontSize: isMobile ? 9 : 11, fill: '#3d4a68' }} tickLine={false} axisLine={false}
+              width={isMobile ? 42 : 52}
             />
 
             <Tooltip content={tooltipContent} cursor={{ stroke: '#1e2338', strokeWidth: 1 }} />
@@ -506,15 +531,17 @@ function MetcalfeChart({
 
             {/* Market price */}
             <ReferenceLine y={ethPrice} stroke="#3d4460" strokeDasharray="6 4" strokeWidth={1.5}
-              label={{ value: `Market ${fmtUSD(ethPrice, 0)}`, position: 'insideTopLeft', fontSize: 11, fill: '#4b5680', dy: -14 }} />
+              label={{ value: `Market ${fmtUSD(ethPrice, 0)}`, position: 'insideTopLeft', fontSize: isMobile ? 9 : 11, fill: '#4b5680', dy: isMobile ? -10 : -14 }} />
 
             {/* Break-even DAA */}
-            <ReferenceLine x={Math.round(daaBreakeven)} stroke="#252840" strokeDasharray="5 3" strokeWidth={1.5}
-              label={{ value: `Break-even ${fmtDAA(daaBreakeven)}`, position: 'top', fontSize: 10, fill: '#3d4460', dy: -6 }} />
+            {!isMobile && (
+              <ReferenceLine x={Math.round(daaBreakeven)} stroke="#252840" strokeDasharray="5 3" strokeWidth={1.5}
+                label={{ value: `Break-even ${fmtDAA(daaBreakeven)}`, position: 'top', fontSize: 10, fill: '#3d4460', dy: -6 }} />
+            )}
 
             {/* Today's live DAA */}
             <ReferenceLine x={daaBaseline} stroke="#5b8ef7" strokeDasharray="5 3" strokeWidth={1.5} strokeOpacity={0.5}
-              label={{ value: `Today ${fmtDAA(daaBaseline)}`, position: 'top', fontSize: 10, fill: '#5b8ef7', dy: -6 }} />
+              label={{ value: isMobile ? fmtDAA(daaBaseline) : `Today ${fmtDAA(daaBaseline)}`, position: 'top', fontSize: isMobile ? 9 : 10, fill: '#5b8ef7', dy: -6 }} />
 
             {/* Selected DAA vertical (only when different from baseline) */}
             {inRange && Math.abs(selectedDaa - daaBaseline) / daaBaseline > 0.015 && (
@@ -523,15 +550,15 @@ function MetcalfeChart({
 
             {/* Selected point dot */}
             {inRange && (
-              <ReferenceDot x={selectedDaa} y={Math.round(selectedFairValue)} r={7}
+              <ReferenceDot x={selectedDaa} y={Math.round(selectedFairValue)} r={isMobile ? 5 : 7}
                 fill={dotColor} stroke="#0f1220" strokeWidth={2.5}
                 label={{ value: fmtUSD(selectedFairValue, 0), position: selectedFairValue > 15_000 ? 'bottom' : 'top',
-                  fontSize: 11, fill: dotColor, fontWeight: 700, dy: selectedFairValue > 15_000 ? 14 : -10 }} />
+                  fontSize: isMobile ? 9 : 11, fill: dotColor, fontWeight: 700, dy: selectedFairValue > 15_000 ? 14 : -10 }} />
             )}
 
             {/* Baseline dot */}
             <ReferenceDot x={daaBaseline} y={Math.round(fairValueAtDaa(daaBaseline))}
-              r={5} fill="#5b8ef7" stroke="#0f1220" strokeWidth={2} />
+              r={isMobile ? 4 : 5} fill="#5b8ef7" stroke="#0f1220" strokeWidth={2} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
